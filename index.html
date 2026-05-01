@@ -138,7 +138,8 @@
   .heatmap-cell {
     height: 18px; border-radius: 1px; display: flex;
     align-items: center; justify-content: center;
-    color: rgba(255,255,255,0.7); font-size: 7px; cursor: default;
+    font-size: 9px; font-weight: 600; cursor: default;
+    font-family: var(--mono);
     transition: opacity 0.1s;
   }
   .heatmap-cell:hover { opacity: 0.8; outline: 1px solid rgba(255,255,255,0.3); }
@@ -168,6 +169,36 @@
   .deg-table td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.03); text-align: right; }
   .deg-table td:first-child { text-align: left; color: #c8dce8; }
   .deg-table tr.highlight td { background: rgba(255,255,255,0.03); }
+
+  /* ── SORTABLE SPEC TABLE ── */
+  .spec-th {
+    cursor: pointer; user-select: none;
+    transition: color 0.12s;
+    white-space: nowrap;
+  }
+  .spec-th:hover { color: #ffffff !important; }
+  .spec-th.sorted { color: #ffffff !important; }
+  .sort-arrow { margin-left: 4px; font-size: 8px; opacity: 0.6; }
+  .spec-th.sorted .sort-arrow { opacity: 1; color: #f0a020; }
+  .spec-row-label {
+    font-family: var(--mono); font-size: 9px; color: #c8dce8;
+    text-align: left; padding: 8px 12px; white-space: nowrap;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .spec-row-label.section {
+    background: var(--surface2); color: #ffffff;
+    font-size: 7px; letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 6px 12px; border-top: 1px solid var(--border);
+  }
+  .spec-cell {
+    font-family: var(--mono); font-size: 11px;
+    text-align: right; padding: 8px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    color: #ffffff;
+  }
+  .spec-cell.best  { color: #34d399; font-weight: 700; }
+  .spec-cell.worst { color: #f87171; }
+  .spec-cell.mid   { color: #c8dce8; }
 
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -208,11 +239,11 @@
   <div class="ctrl-group">
     <div class="ctrl-label">Basis</div>
     <div class="pval-toggle">
-      <button class="pval-btn" id="basisPerPanel" onclick="setBasis('panel')" style="background:#e2eaf0;color:#080a0c;font-weight:600">Per Panel</button>
-      <button class="pval-btn" id="basisPerArea"  onclick="setBasis('area')">Fixed Area</button>
+      <button class="pval-btn" id="basisPerPanel" onclick="setBasis('panel')">Per Panel</button>
+      <button class="pval-btn" id="basisPerArea"  onclick="setBasis('area')" style="background:#e2eaf0;color:#080a0c;font-weight:600">Fixed Area</button>
     </div>
   </div>
-  <div class="ctrl-group" id="areaInputGroup" style="display:none">
+  <div class="ctrl-group" id="areaInputGroup" style="display:flex">
     <div class="ctrl-label">Area m²</div>
     <input type="number" id="roofArea" value="1000" step="100" min="100" max="10000"
       style="width:70px;background:var(--surface2);border:1px solid var(--border);color:var(--text);
@@ -291,6 +322,28 @@
     <div class="card-header">
       <div class="card-title">&#9632; Panel Specification Comparison</div>
       <div class="card-sub">Sandton NOCT model · white klip-lok albedo 0.61</div>
+    </div>
+    <div class="card-body" style="padding:12px 16px 0">
+      <!-- Fair value controls -->
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:12px;
+                  padding:10px 14px;background:var(--surface2);border-radius:3px;border:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#c8dce8">
+          Fair Value Model
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="ctrl-label">Reference</div>
+          <select id="refPanelSelect" onchange="refPanel=this.value;renderSpecTable()"
+            style="background:var(--bg);border:1px solid var(--border);color:#ffffff;
+                   font-family:var(--mono);font-size:10px;padding:4px 8px;border-radius:2px;outline:none">
+          </select>
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:#8aa0b0" id="fairValueNote"></div>
+        <div style="margin-left:auto;font-family:var(--mono);font-size:8px;color:#8aa0b0">
+          Enter actual prices below to see premium/discount vs fair value
+        </div>
+      </div>
+      <!-- Actual price inputs -->
+      <div id="actualPriceInputs" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
     </div>
     <div class="card-body" style="padding:0">
       <div id="specTable"></div>
@@ -2528,7 +2581,7 @@ function drawDegChart() {
       return parseFloat((annualKWhPerPanel(k, i+1)).toFixed(2));
     });
     return {
-      label: PANEL_TYPES[k].label,
+      label: panelLabel(k),
       data:  data,
       borderColor: COLORS[k] || '#888',
       backgroundColor: 'transparent',
@@ -2569,7 +2622,7 @@ function drawMonthlyChart() {
       return parseFloat((dailyKWhPerKWp(k, m, activeYear) * kwpPerPanel(k)).toFixed(3));
     });
     return {
-      label: PANEL_TYPES[k].label,
+      label: panelLabel(k),
       data:  data,
       borderColor: COLORS[k] || '#888',
       backgroundColor: (COLORS[k]||'#888').replace('rgb','rgba').replace(')',', 0.08)'),
@@ -2591,7 +2644,7 @@ function renderOutputBars() {
   if (!el) return;
 
   var entries = activePanels.map(function(k) {
-    return { key:k, label:PANEL_TYPES[k].label, mwh: cumulKWhPerPanel(k, activeYear), color: COLORS[k]||'#888' };
+    return { key:k, label:panelLabel(k), mwh: cumulKWhPerPanel(k, activeYear), color: COLORS[k]||'#888' };
   }).sort(function(a,b){ return b.mwh - a.mwh; });
 
   var maxMwh = entries.length ? entries[0].mwh : 1;
@@ -2619,6 +2672,9 @@ function renderOutputBars() {
       '<div class="bar-specs">' +
         '<span style="color:'+e.color+';font-weight:600">'+(basisMode==='area'?panelMultiplier(e.key)+' panels':'1 panel')+'</span>' +
         '<span>'+PANEL_TYPES[e.key].watt+'W</span>' +
+        (basisMode==='area' ? '<span style="color:#34d399;font-weight:600">' +
+          (e.mwh / (+(document.getElementById('roofArea')?.value||1000))).toFixed(1)+
+          ' kWh/m²</span>' : '') +
         '<span>-'+PANEL_TYPES[e.key].tempCoeff+'%/°C</span>' +
         '<span>bifaciality '+(PANEL_TYPES[e.key].bifaciality*100).toFixed(0)+'%</span>' +
         '<span>bifacial gain yr1 +'+bf1+'% → yr'+activeYear+' +'+bfN+'%</span>' +
@@ -2628,54 +2684,304 @@ function renderOutputBars() {
   }).join('');
 }
 
+function panelLabel(k) {
+  return (PANEL_TYPES[k]||{label:k}).label
+    .replace('Aiko Stellar ','Aiko ')
+    .replace('LONGi Hi-MO9 LR8-66HYD-650M','LONGi 650W')
+    .replace('JinkoSolar ','Jinko ')
+    .replace('Trina Vertex N ','Trina ')
+    .replace('Seraphim Sable ','Seraphim ');
+}
+
+function sortSpec(col) {
+  if (specSortCol === col) {
+    specSortDir = specSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    specSortCol = col;
+    specSortDir = 'desc';
+  }
+  renderSpecTable();
+}
+
 function renderSpecTable() {
   var el = document.getElementById('specTable');
   if (!el) return;
 
+  var area   = +(document.getElementById('roofArea')?.value || 1000);
   var keys   = activePanels;
-  var panels = keys.map(function(k){ return PANEL_TYPES[k]; });
 
-  // Spec rows: label, extractor fn, unit, best=max|min
-  var rows = [
-    ['Wattage (STC)',         function(k){ return PANEL_TYPES[k].watt; },                             'W',       'max'],
-    ['Technology',            function(k){ return k.startsWith('aiko')?'N-Type ABC':k==='longi650'?'BC-Cell':'TOPCon N-Type'; }, '', null],
-    ['Temp coefficient',      function(k){ return '-'+PANEL_TYPES[k].tempCoeff; },                    '%/°C',    'min'],
-    ['Bifaciality',           function(k){ return (PANEL_TYPES[k].bifaciality*100).toFixed(0); },     '%',       'max'],
-    ['Yr1 degradation',       function(k){ return PANEL_TYPES[k].yr1; },                              '%',       'min'],
-    ['Annual deg (yr2+)',      function(k){ return PANEL_TYPES[k].ann; },                              '%/yr',    'min'],
-    ['Temp loss Jan (Sandton)',function(k){ return ((1-tempDerate(k,0))*100).toFixed(2); },            '%',       'min'],
-    ['Temp loss Jul (Sandton)',function(k){ return ((1-tempDerate(k,6))*100).toFixed(2); },            '%',       'min'],
-    ['Bifacial gain Yr1',     function(k){ return (bifacialGain(k,1)*100).toFixed(2); },              '%',       'max'],
-    ['Bifacial gain Yr25',    function(k){ return (bifacialGain(k,25)*100).toFixed(2); },             '%',       'max'],
-    ['25yr cumul (kWh/panel)',function(k){ return cumulKWhPerPanel(k,25).toFixed(0); },                 '',        'max'],
-    ['Est. supply price',     function(k){ return PANEL_COSTS[k]?'R '+PANEL_COSTS[k].perPanel.toFixed(2):'—'; }, '',  null],
-    ['Panel cost / 25yr kWh', function(k){ var c=cumulKWhPerPanel(k,25); return PANEL_COSTS[k]?(PANEL_COSTS[k].perPanel/c).toFixed(4):'—'; }, 'R/kWh', 'min'],
-    ['Dimensions (mm)',        function(k){ return k==='jinko710'?'2384×1303×33 ⚠':'2382×1134×30'; }, '', null],
-    ['Different racking?',     function(k){ return k==='jinko710'?'YES — 169mm wider':'No'; }, '', null],
+  // Spec definitions: { key, label, unit, best, fn }
+  var specs = [
+    { key:'watt',      label:'Wattage',          unit:'W',       best:'max', fn: function(k){ return PANEL_TYPES[k].watt; } },
+    { key:'tech',      label:'Technology',        unit:'',        best:null,  fn: function(k){ return k.startsWith('aiko')?'ABC':k==='longi650'?'BC-Cell':'TOPCon'; } },
+    { key:'tempcoeff', label:'Temp Coeff',        unit:'%/°C',    best:'min', fn: function(k){ return +PANEL_TYPES[k].tempCoeff; } },
+    { key:'bifac',     label:'Bifaciality',       unit:'%',       best:'max', fn: function(k){ return +(PANEL_TYPES[k].bifaciality*100).toFixed(0); } },
+    { key:'deg1',      label:'Yr1 Deg',           unit:'%',       best:'min', fn: function(k){ return PANEL_TYPES[k].yr1; } },
+    { key:'degann',    label:'Annual Deg',        unit:'%/yr',    best:'min', fn: function(k){ return PANEL_TYPES[k].ann; } },
+    { key:'templossjan',label:'Temp Loss Jan',    unit:'%',       best:'min', fn: function(k){ return +((1-tempDerate(k,0))*100).toFixed(2); } },
+    { key:'templossjul',label:'Temp Loss Jul',    unit:'%',       best:'min', fn: function(k){ return +((1-tempDerate(k,6))*100).toFixed(2); } },
+    { key:'bifgain1',  label:'Bifacial Yr1',      unit:'%',       best:'max', fn: function(k){ return +(bifacialGain(k,1)*100).toFixed(2); } },
+    { key:'bifgain25', label:'Bifacial Yr25',     unit:'%',       best:'max', fn: function(k){ return +(bifacialGain(k,25)*100).toFixed(2); } },
+    { key:'cumul25',   label:'25yr kWh/panel',    unit:'kWh',     best:'max', fn: function(k){ return +(cumulKWhPerPanel(k,25)/Math.max(1,panelMultiplier(k))).toFixed(0); } },
+    { key:'price',     label:'Est. Price',        unit:'R',       best:'min', fn: function(k){ return PANEL_COSTS[k]?PANEL_COSTS[k].perPanel:null; } },
+    { key:'lcoe25',    label:'R/kWh (25yr)',       unit:'R/kWh',   best:'min', fn: function(k){ var c=cumulKWhPerPanel(k,25)/Math.max(1,panelMultiplier(k)); return PANEL_COSTS[k]?+(PANEL_COSTS[k].perPanel/c).toFixed(4):null; } },
+    { key:'dims',      label:'Dimensions',        unit:'mm',      best:null,  fn: function(k){ return k==='jinko710'?'2384×1303 ⚠':'2382×1134'; } },
   ];
 
-  var thead = '<tr>' +
-    '<th style="text-align:left">Specification</th>' +
-    keys.map(function(k){ return '<th style="color:'+COLORS[k]+';text-align:right">'+PANEL_TYPES[k].label.replace(/\s+/g,'<br>')+'</th>'; }).join('') +
-    '</tr>';
+  // ── Fair value specs ──────────────────────────────────────────────
+  // Reference panel 25yr yield per panel
+  var refYield = cumulKWhPerPanel(refPanel, 25) / Math.max(1, panelMultiplier(refPanel));
+  var refPrice = actualPrices[refPanel] || PANEL_COSTS[refPanel]?.perPanel || 1852.50;
 
-  var tbody = rows.map(function(row, ri) {
-    var vals     = keys.map(row[1]);
-    var numVals  = vals.map(parseFloat).filter(function(v){ return !isNaN(v); });
-    var bestVal  = row[3] === 'max' ? Math.max.apply(null,numVals) : Math.min.apply(null,numVals);
-    var bg       = ri%2===0 ? '' : 'background:rgba(255,255,255,0.015)';
+  specs.push({ key:'fairvalue', label:'Fair Value', unit:'R',   best:null, fn: function(k) {
+    var myYield = cumulKWhPerPanel(k,25) / Math.max(1, panelMultiplier(k));
+    if (refYield <= 0) return null;
+    return Math.round(myYield / refYield * refPrice);
+  }});
+  specs.push({ key:'actualprice', label:'Actual Price', unit:'R', best:null, fn: function(k) {
+    return actualPrices[k] ? actualPrices[k] : (PANEL_COSTS[k] ? PANEL_COSTS[k].perPanel : null);
+  }});
+  specs.push({ key:'vs_fair', label:'vs Fair Value', unit:'', best:null, fn: function(k) {
+    var myYield   = cumulKWhPerPanel(k,25) / Math.max(1, panelMultiplier(k));
+    if (refYield <= 0) return null;
+    var fair      = myYield / refYield * refPrice;
+    var actual    = actualPrices[k] || PANEL_COSTS[k]?.perPanel;
+    if (!actual) return null;
+    var pct = ((actual - fair) / fair * 100);
+    return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+  }});
+  specs.push({ key:'premium_r', label:'Premium (R)', unit:'R', best:null, fn: function(k) {
+    var myYield = cumulKWhPerPanel(k,25) / Math.max(1, panelMultiplier(k));
+    if (refYield <= 0) return null;
+    var fair   = myYield / refYield * refPrice;
+    var actual = actualPrices[k] || PANEL_COSTS[k]?.perPanel;
+    if (!actual) return null;
+    return Math.round(actual - fair);
+  }});
 
-    return '<tr style="'+bg+'">' +
-      '<td class="spec-name">'+row[0]+'</td>' +
-      vals.map(function(v, vi) {
-        var num = parseFloat(v);
-        var cls = (!isNaN(num) && row[3] && num === bestVal) ? 'spec-best' : 'spec-val';
-        return '<td class="'+cls+'" style="text-align:right">'+v+(row[2]?'<span style="font-size:8px;color:#c8dce8"> '+row[2]+'</span>':'')+'</td>';
-      }).join('') +
+  // Update ref panel select options
+  var sel = document.getElementById('refPanelSelect');
+  if (sel && sel.options.length === 0) {
+    activePanels.forEach(function(k) {
+      var opt = document.createElement('option');
+      opt.value = k; opt.textContent = panelLabel(k);
+      if (k === refPanel) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } else if (sel) {
+    // Update existing options if panels changed
+    if (sel.options.length !== activePanels.length) {
+      sel.innerHTML = '';
+      activePanels.forEach(function(k) {
+        var opt = document.createElement('option');
+        opt.value = k; opt.textContent = panelLabel(k);
+        if (k === refPanel) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  // Update fair value note
+  var fvNote = document.getElementById('fairValueNote');
+  if (fvNote) fvNote.textContent = 'Reference: '+panelLabel(refPanel)+' · R'+refPrice.toFixed(2)+' · '+refYield.toFixed(0)+' kWh/panel · all others priced relative to this yield';
+
+  // Update actual price inputs
+  var apDiv = document.getElementById('actualPriceInputs');
+  if (apDiv) {
+    // Save current input values before re-render
+    apDiv.querySelectorAll('.actual-price-input').forEach(function(inp) {
+      var k2 = inp.getAttribute('data-panelkey');
+      if (k2 && inp.value) actualPrices[k2] = +inp.value || null;
+    });
+    apDiv.innerHTML = activePanels.map(function(k) {
+      var fair   = refYield > 0 ? Math.round(cumulKWhPerPanel(k,25)/Math.max(1,panelMultiplier(k))/refYield*refPrice) : 0;
+      var actual    = actualPrices[k] || '';
+      var isRef     = k === refPanel;
+      var watt      = PANEL_TYPES[k].watt;
+      var fairRW    = fair > 0 ? (fair / watt).toFixed(2) : '—';
+      var actualRW  = actual ? (actual / watt).toFixed(2) : '';
+      return '<div style="background:var(--bg);border:1px solid '+(isRef?COLORS[k]:'var(--border)')+';'+
+        'border-radius:3px;padding:8px 12px;min-width:190px">' +
+        // Panel name
+        '<div style="font-family:var(--mono);font-size:9px;color:'+COLORS[k]+';font-weight:600;margin-bottom:6px">'+
+          panelLabel(k)+(isRef?' \u2605':'')+'</div>' +
+        // Fair value
+        '<div style="font-family:var(--mono);font-size:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline">'+
+          '<span style="color:#8aa0b0">Fair value</span>' +
+          '<span style="color:#60a5fa">R\u00a0'+fair+' <span style="color:#5a7080;font-size:7px">\xb7 R\u00a0'+fairRW+'/W</span></span>'+
+        '</div>' +
+        // Per panel input
+        '<div style="margin-bottom:5px">'+
+          '<div style="font-family:var(--mono);font-size:7px;letter-spacing:1px;text-transform:uppercase;color:#8aa0b0;margin-bottom:3px">Price per panel</div>'+
+          '<div style="display:flex;align-items:center;gap:5px">'+
+            '<span style="font-family:var(--mono);font-size:9px;color:#8aa0b0">R</span>'+
+            '<input type="number" value="'+(actual||'')+'" placeholder="'+fair+'" min="0" step="10" '+
+              'data-panelkey="'+k+'" class="actual-price-input" '+
+              'style="width:80px;background:var(--surface2);border:1px solid var(--border);color:#fff;'+
+              'font-family:var(--mono);font-size:11px;padding:3px 6px;border-radius:2px;outline:none">'+
+            (actualRW?'<span style="font-family:var(--mono);font-size:8px;color:#34d399">\u2192 R\u00a0'+actualRW+'/W</span>':'')+
+          '</div>'+
+        '</div>'+
+        // Per watt input
+        '<div>'+
+          '<div style="font-family:var(--mono);font-size:7px;letter-spacing:1px;text-transform:uppercase;color:#8aa0b0;margin-bottom:3px">Or enter R/W</div>'+
+          '<div style="display:flex;align-items:center;gap:5px">'+
+            '<span style="font-family:var(--mono);font-size:9px;color:#8aa0b0">R</span>'+
+            '<input type="number" value="'+actualRW+'" placeholder="'+fairRW+'" min="0" step="0.01" '+
+              'data-panelkey="'+k+'" class="actual-price-rw-input" '+
+              'style="width:65px;background:var(--surface2);border:1px solid var(--border);color:#fff;'+
+              'font-family:var(--mono);font-size:11px;padding:3px 6px;border-radius:2px;outline:none">'+
+            '<span style="font-family:var(--mono);font-size:9px;color:#8aa0b0">/W</span>'+
+            (actual?'<span style="font-family:var(--mono);font-size:8px;color:#34d399">\u2192 R\u00a0'+actual+'/panel</span>':'')+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+    // Wire change events
+    apDiv.querySelectorAll('.actual-price-input').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var k2 = this.getAttribute('data-panelkey');
+        actualPrices[k2] = +this.value || null;
+        renderSpecTable();
+      });
+    });
+    apDiv.querySelectorAll('.actual-price-rw-input').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var k2  = this.getAttribute('data-panelkey');
+        var rw  = parseFloat(this.value);
+        actualPrices[k2] = (!isNaN(rw) && rw > 0) ? Math.round(rw * PANEL_TYPES[k2].watt) : null;
+        renderSpecTable();
+      });
+    });
+    // R/W inputs — convert to per-panel price on change
+    apDiv.querySelectorAll('.actual-price-rw-input').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var k2   = this.getAttribute('data-panelkey');
+        var rw   = parseFloat(this.value);
+        if (!isNaN(rw) && rw > 0) {
+          actualPrices[k2] = Math.round(rw * PANEL_TYPES[k2].watt);
+        } else {
+          actualPrices[k2] = null;
+        }
+        renderSpecTable();
+      });
+    });
+  }
+
+  // ── Area-mode extra specs ──────────────────────────────────────
+  if (basisMode === 'area') {
+    specs.push({ key:'nfit',    label:'Panels on '+area.toLocaleString()+'m²', unit:'', best:'max', fn: function(k){ return panelCountForArea(k,area).n; } });
+    specs.push({ key:'wpm2',    label:'W per '+area.toLocaleString()+'m²', unit:'W', best:'max', fn: function(k){ var n=panelCountForArea(k,area).n; return +(n*PANEL_TYPES[k].watt); } });
+    specs.push({ key:'kwpm2',   label:'kWp/m²',   unit:'kWp/m²',  best:'max', fn: function(k){ var n=panelCountForArea(k,area).n; return +(n*PANEL_TYPES[k].watt/1000/area).toFixed(3); } });
+    specs.push({ key:'kwh25m2', label:'25yr kWh/m²', unit:'kWh/m²', best:'max', fn: function(k){ return +(cumulKWhPerPanel(k,25)/area).toFixed(1); } });
+  }
+
+  // Build data matrix: rows = panels, cols = specs
+  var data = keys.map(function(k) {
+    var row = { key: k };
+    specs.forEach(function(s) { row[s.key] = s.fn(k); });
+    return row;
+  });
+
+  // Sort if a sort column is active
+  if (specSortCol) {
+    data.sort(function(a, b) {
+      var va = parseFloat(a[specSortCol]);
+      var vb = parseFloat(b[specSortCol]);
+      if (isNaN(va) || isNaN(vb)) return 0;
+      return specSortDir === 'desc' ? vb - va : va - vb;
+    });
+  }
+
+  // For each spec, find best/worst numeric values across active panels
+  var bestVals = {}, worstVals = {};
+  specs.forEach(function(s) {
+    if (!s.best) return;
+    var nums = keys.map(function(k){ return parseFloat(s.fn(k)); }).filter(function(v){ return !isNaN(v); });
+    if (!nums.length) return;
+    bestVals[s.key]  = s.best==='max' ? Math.max.apply(null,nums) : Math.min.apply(null,nums);
+    worstVals[s.key] = s.best==='max' ? Math.min.apply(null,nums) : Math.max.apply(null,nums);
+  });
+
+  // ── Build transposed table: rows=panels, cols=specs ──────────────
+  var sortArrow = function(skey) {
+    if (specSortCol !== skey) return '<span class="sort-arrow">\u2195</span>';
+    return '<span class="sort-arrow">'+(specSortDir==='desc'?'\u2193':'\u2191')+'</span>';
+  };
+
+  var thead = '<tr style="background:var(--surface2);border-bottom:2px solid var(--border)">' +
+    '<th style="padding:9px 12px;text-align:left;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#c8dce8;position:sticky;left:0;background:var(--surface2);z-index:2;min-width:120px">Panel</th>' +
+    specs.map(function(s) {
+      var isSorted = specSortCol === s.key;
+      return '<th class="spec-th'+(isSorted?' sorted':'')+'" '+
+        'data-sortcol="'+s.key+'" '+
+        'style="padding:9px 10px;text-align:right;font-size:8px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;color:'+(isSorted?'#ffffff':'#d0e4f0')+'">'+
+        s.label+(s.unit?'<br><span style="font-weight:300;font-size:7px;color:#8aa0b0">'+s.unit+'</span>':'')+
+        sortArrow(s.key)+
+        '</th>';
+    }).join('') +
+  '</tr>';
+
+  var tbody = data.map(function(row, ri) {
+    var k   = row.key;
+    var bg  = ri%2===0 ? 'background:var(--bg)' : 'background:var(--surface)';
+    var cells = specs.map(function(s) {
+      var raw = row[s.key];
+      var num = parseFloat(raw);
+      var isBest  = s.best && !isNaN(num) && num === bestVals[s.key];
+      var isWorst = s.best && !isNaN(num) && num === worstVals[s.key] && keys.length > 1;
+      var cls = isBest ? 'best' : isWorst ? 'worst' : 'mid';
+      var disp = raw === null ? '\u2014' : raw;
+      // Special colouring for vs_fair column
+      var extraStyle = '';
+      if (s.key === 'vs_fair' && typeof raw === 'string' && raw !== '\u2014') {
+        var pctVal = parseFloat(raw);
+        if (!isNaN(pctVal)) {
+          extraStyle = pctVal > 5 ? 'color:#f87171;font-weight:700' :
+                       pctVal > 0 ? 'color:#fb923c' :
+                       pctVal < -5 ? 'color:#34d399;font-weight:700' :
+                       pctVal < 0 ? 'color:#86efac' : 'color:#c8dce8';
+          disp = (pctVal > 0 ? '\u2191 ' : pctVal < 0 ? '\u2193 ' : '') + raw;
+        }
+      }
+      if (s.key === 'fairvalue') extraStyle = 'color:#60a5fa';
+      if (s.key === 'actualprice' && raw !== null) extraStyle = 'color:#ffffff;font-weight:600';
+      if (s.key === 'premium_r' && typeof raw === 'number') {
+        extraStyle = raw > 50 ? 'color:#f87171;font-weight:700' :
+                     raw > 0  ? 'color:#fb923c' :
+                     raw < -50? 'color:#34d399;font-weight:700' :
+                     raw < 0  ? 'color:#86efac' : 'color:#c8dce8';
+        disp = (raw > 0 ? '+' : '') + 'R\u00a0' + raw.toLocaleString();
+      }
+      return '<td class="spec-cell '+cls+'" style="'+extraStyle+'">'+(isBest?'\u2605 ':'')+disp+'</td>';
+    }).join('');
+
+    return '<tr style="'+bg+';border-bottom:1px solid rgba(255,255,255,0.04)">' +
+      '<td style="padding:9px 12px;font-family:var(--mono);font-size:10px;font-weight:600;color:'+COLORS[k]+';'+
+           'position:sticky;left:0;background:'+(ri%2===0?'var(--bg)':'var(--surface)')+';z-index:1;white-space:nowrap">'+
+        panelLabel(k)+
+      '</td>' +
+      cells +
     '</tr>';
   }).join('');
 
-  el.innerHTML = '<table class="spec-table"><thead>'+thead+'</thead><tbody>'+tbody+'</tbody></table>';
+  el.innerHTML =
+    '<div style="overflow-x:auto">' +
+    '<table id="specTableEl" class="spec-table" style="min-width:max-content">' +
+      '<thead>'+thead+'</thead>' +
+      '<tbody>'+tbody+'</tbody>' +
+    '</table>' +
+    '</div>' +
+    '<div style="font-size:8px;color:#8aa0b0;margin-top:8px;font-family:var(--mono)">'+
+      '\u2605 = best \xb7 click column header to sort \xb7 green = best \xb7 red = worst' +
+    '</div>';
+  // Wire sort click handler
+  var tbl = document.getElementById('specTableEl');
+  if (tbl) {
+    tbl.querySelectorAll('th[data-sortcol]').forEach(function(th) {
+      th.addEventListener('click', function() { sortSpec(this.getAttribute('data-sortcol')); });
+    });
+  }
 }
 
 function renderHeatmap() {
@@ -2686,7 +2992,7 @@ function renderHeatmap() {
   if (!PANEL_TYPES[k]) k = activePanels[0] || 'aiko650';
 
   var col  = COLORS[k] || '#888';
-  if (sub) sub.textContent = PANEL_TYPES[k].label + ' · Wh per panel per hour · '+activePct.toUpperCase()+' · Year '+activeYear;
+  if (sub) sub.textContent = panelLabel(k) + ' · Wh per panel per hour · '+activePct.toUpperCase()+' · Year '+activeYear;
 
   // Hours 5-20 (solar window)
   var hours = [], hourLabels = [];
@@ -2722,14 +3028,17 @@ function renderHeatmap() {
   });
   // Data rows
   grid.forEach(function(row, hi) {
-    html += '<div class="heatmap-cell heatmap-label" style="height:22px">'+hourLabels[hi]+'</div>';
+    html += '<div class="heatmap-cell heatmap-label" style="height:28px;font-size:9px">'+hourLabels[hi]+'</div>';
     row.forEach(function(val) {
       var opacity = maxVal > 0 ? (val / maxVal) : 0;
       var bg = opacity > 0
         ? 'background:'+col+';opacity:'+(0.1 + opacity*0.9).toFixed(2)
         : 'background:rgba(255,255,255,0.02);opacity:0.5';
-      var txt = val > 0 ? (val*1000).toFixed(1) : '';
-      html += '<div class="heatmap-cell" style="height:22px;'+bg+'" title="'+hourLabels[hi]+' · '+MNAMES[row.indexOf(val)]+' · '+val.toFixed(4)+' kWh/kWp">'+txt+'</div>';
+      var txt = val > 0.001 ? (val*1000).toFixed(1) : '';
+      // Contrasting text colour: dark on bright cells, white on dark cells
+      var textCol = opacity > 0.55 ? '#080a0c' : '#ffffff'; // always white on dark, dark on bright
+      var cellStyle = opacity > 0 ? bg+';color:'+textCol+';font-size:10px' : bg+';color:#2a3a44;font-size:9px';
+      html += '<div class="heatmap-cell" style="height:28px;'+cellStyle+'" title="'+hourLabels[hi]+' · '+MNAMES[row.indexOf(val)]+' · '+(val*1000).toFixed(2)+' Wh/panel">'+txt+'</div>';
     });
   });
   html += '</div>';
@@ -2748,7 +3057,7 @@ function renderHeatmap() {
   if (pp) {
     pp.innerHTML = activePanels.map(function(pk) {
       var active = pk === heatmapPanel;
-      return '<button onclick="heatmapPanel=\''+pk+'\';renderHeatmap()" style="font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:2px;cursor:pointer;border:1px solid '+(active?COLORS[pk]:'transparent')+';background:'+(active?COLORS[pk]+'22':'var(--surface2)')+';color:'+(active?COLORS[pk]:'var(--muted)')+'">'+PANEL_TYPES[pk].label.split(' ').slice(0,3).join(' ')+'</button>';
+      return '<button onclick="heatmapPanel=\''+pk+'\';renderHeatmap()" style="font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:2px;cursor:pointer;border:1px solid '+(active?COLORS[pk]:'transparent')+';background:'+(active?COLORS[pk]+'22':'var(--surface2)')+';color:'+(active?COLORS[pk]:'var(--muted)')+'">'+panelLabel(pk)+'</button>';
     }).join('');
   }
 }
@@ -2762,7 +3071,7 @@ function renderMilestoneTable() {
 
   var thead = '<tr>' +
     '<th style="text-align:left">Year</th>' +
-    keys.map(function(k){ return '<th style="color:'+COLORS[k]+';text-align:right">'+PANEL_TYPES[k].label.split(' ').slice(0,3).join(' ')+'</th>'; }).join('') +
+    keys.map(function(k){ return '<th style="color:'+COLORS[k]+';text-align:right">'+panelLabel(k)+'</th>'; }).join('') +
     '</tr>';
 
   var tbody = years.map(function(yr, ri) {
@@ -2791,8 +3100,7 @@ function buildPanelPills() {
     return '<button class="panel-pill'+(active?' active':'')+'" ' +
       'style="'+(active?'background:'+col+';border-color:'+col+';':'')+'" ' +
       'onclick="togglePanel(\''+k+'\')">'+
-      PANEL_TYPES[k].label.replace('Aiko Stellar ','Aiko ').replace('LONGi Hi-MO9 ','LONGi ').replace(' LR8-66HYD-650M','').replace('Trina Vertex N ','Trina ').replace('Seraphim Sable ','Seraphim ') +
-      '</button>';
+      panelLabel(k);
   }).join('');
 }
 
@@ -2814,8 +3122,21 @@ function setPval(p) {
 
 var npvChart = null;
 
+// ── PANEL LABEL WITH WATTAGE ─────────────────────────────────────
+function panelLabel(k) {
+  var p = PANEL_TYPES[k];
+  if (!p) return k;
+  // Always include wattage — strip any existing W suffix then re-add
+  var base = p.label.replace(/\s*\d+W\s*$/, '').trim();
+  return base + ' ' + p.watt + 'W';
+}
+
 // ── BASIS MODE ───────────────────────────────────────────────────
-var basisMode = 'panel'; // 'panel' = per panel | 'area' = fixed roof area
+var basisMode = 'area';
+var specSortCol  = null;
+var refPanel     = 'aiko650';  // reference panel for fair value calc
+var actualPrices = {};         // user-entered actual prices per panel key   // column key to sort by, null = default order
+var specSortDir  = 'desc'; // 'asc' | 'desc' // 'panel' = per panel | 'area' = fixed roof area
 var COL_GAP   = 20;  // mm between panels in a row
 var ROW_GAP   = 50;  // mm between rows (flat roof, minimal spacing)
 
@@ -2945,7 +3266,7 @@ function renderNPV() {
     backgroundColor: 'rgba(8,10,12,0.95)', titleColor: '#c8dce8', bodyColor: '#e2eaf0',
     titleFont: { family:'IBM Plex Mono', size:9 }, bodyFont: { family:'IBM Plex Mono', size:9 },
     callbacks: {
-      title:  function(c)  { return PANEL_TYPES[keys[c[0].dataIndex]]?.label || ''; },
+      title:  function(c)  { return panelLabel(keys[c[0].dataIndex]) || ''; },
       label:  function(c)  { return ' NPV: R '+c.raw.toLocaleString(); },
       footer: function(c)  {
         var k  = keys[c[0].dataIndex];
@@ -2989,7 +3310,7 @@ function renderNPV() {
     type: 'bar',
     plugins: [valueLabels],
     data: {
-      labels: keys.map(function(k){ return PANEL_TYPES[k].label.replace('Aiko Stellar ','Aiko ').replace('LONGi Hi-MO9 LR8-66HYD-650M','LONGi 650W').replace('Trina Vertex N ','Trina ').replace('Seraphim Sable ','Seraphim '); }),
+      labels: keys.map(function(k){ return panelLabel(k); }),
       datasets: datasets
     },
     options: opts
@@ -3007,14 +3328,16 @@ function renderNPV() {
       var bdrCol = isFirst ? COLORS[e.k] : 'rgba(255,255,255,0.07)';
       return '<div style="background:var(--surface2);border:1px solid '+bdrCol+';border-radius:3px;padding:12px">' +
         '<div style="font-family:var(--mono);font-size:9px;color:'+COLORS[e.k]+';margin-bottom:6px;font-weight:600">'+
-          (isFirst?'★ ':'')+(i+1)+'. '+PANEL_TYPES[e.k].label.split(' ').slice(0,3).join(' ')+
+          (isFirst?'★ ':'')+(i+1)+'. '+panelLabel(e.k)+
         '</div>' +
         '<div style="font-family:var(--mono);font-size:20px;color:'+(isFirst?'#fff':'var(--text)')+';font-weight:700">R '+Math.round(e.npv).toLocaleString()+'</div>' +
         '<div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:2px">NPV per panel</div>' +
         '<div style="font-family:var(--mono);font-size:9px;color:'+(isFirst?'#34d399':'#f87171')+';margin-top:6px;font-weight:600">'+
           (isFirst?'★ best':'−R '+Math.abs(Math.round(delta)).toLocaleString())+
         '</div>' +
-        '<div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px">Yr1 revenue R '+yr1Rev.toFixed(0)+'/kWp</div>' +
+        '<div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px">Yr1 revenue R '+yr1Rev.toFixed(0)+(basisMode==='area'?'/m²':'/panel')+'</div>' +
+        (basisMode==='area' ? '<div style="font-family:var(--mono);font-size:9px;color:#34d399;margin-top:3px;font-weight:600">'+
+          (e.npv/(+(document.getElementById('roofArea')?.value||1000))).toFixed(0)+' R/m² NPV</div>' : '') +
       '</div>';
     }).join('') +
   '</div>';
